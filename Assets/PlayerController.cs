@@ -1,22 +1,26 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.InputSystem.XR;
 
 
 public class PlayerController : MonoBehaviour
 {
     public float moveSpeed = 5f;
     public float rotationSpeed = 200f;
-    private Rigidbody rb;
+    private CharacterController controller;
     private float moveInput;
     private float rotationInput;
+    private Rigidbody rb;
+
+    private Vector3 moveDirection = Vector3.zero;
+    public float gravity = 9.81f;
 
     private GrabbableObject currentGrabbableObject;
     public Transform grabPoint;
     private List<GrabbableObject> grabbedObjects = new List<GrabbableObject>();
 
     public GameObject smokeEffectPrefab;
-
     public AudioClip pickupSound;
     public AudioClip dropSound;
     private AudioSource audioSource;
@@ -24,6 +28,17 @@ public class PlayerController : MonoBehaviour
 
     void Start()
     {
+        controller = GetComponent<CharacterController>();
+        if (controller == null)
+            Debug.LogError("No se encontró un CharacterController en el objeto Player.");
+
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null)
+        {
+            audioSource = GetComponentInChildren<AudioSource>();
+            if (audioSource == null)
+                Debug.LogError("No se encontró un AudioSource en el Player ni en sus hijos.");
+        }
         rb = GetComponent<Rigidbody>();
         if (rb == null)
             Debug.LogError("No se encontró un Rigidbody en el objeto Player.");
@@ -42,6 +57,87 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        moveInput = Input.GetAxis("Vertical");
+        rotationInput = Input.GetAxis("Horizontal");
+
+        Vector3 forward = transform.forward * moveInput * moveSpeed;
+        moveDirection = new Vector3(forward.x, moveDirection.y, forward.z);
+
+        if (!controller.isGrounded)
+        {
+            moveDirection.y -= gravity * Time.deltaTime;
+        }
+        else
+        {
+            moveDirection.y = -1f; // Para asegurar contacto con el suelo
+        }
+
+        controller.Move(moveDirection * Time.deltaTime);
+
+        float rotation = rotationInput * rotationSpeed * Time.deltaTime;
+        transform.Rotate(0f, rotation, 0f);
+
+        // Agarrar/Soltar lógica
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            if (currentGrabbableObject != null && !grabbedObjects.Contains(currentGrabbableObject))
+            {
+                string newTag = currentGrabbableObject.tag;
+
+                if (grabbedObjects.Count == 0)
+                {
+                    AgarrarObjeto(currentGrabbableObject);
+                    currentGrabbableObject = null;
+                }
+                else if (grabbedObjects.Count == 1)
+                {
+                    string firstTag = grabbedObjects[0].tag;
+
+                    if (firstTag == "Plato")
+                    {
+                        AgarrarObjeto(currentGrabbableObject);
+                        currentGrabbableObject = null;
+                    }
+                    else
+                    {
+                        SoltarObjeto(grabbedObjects[0]);
+                        grabbedObjects.Clear();
+
+                        AgarrarObjeto(currentGrabbableObject);
+                        currentGrabbableObject = null;
+                    }
+                }
+                else if (grabbedObjects.Count == 2)
+                {
+                    string firstTag = grabbedObjects[0].tag;
+
+                    if (firstTag == "Plato")
+                    {
+                        GrabbableObject topObject = grabbedObjects[1];
+                        grabbedObjects.RemoveAt(1);
+                        SoltarObjeto(topObject);
+
+                        AgarrarObjeto(currentGrabbableObject);
+                        currentGrabbableObject = null;
+                    }
+                    else
+                    {
+                        foreach (var obj in grabbedObjects)
+                            SoltarObjeto(obj);
+                        grabbedObjects.Clear();
+
+                        AgarrarObjeto(currentGrabbableObject);
+                        currentGrabbableObject = null;
+                    }
+                }
+            }
+            else if (grabbedObjects.Count > 0)
+            {
+                GrabbableObject last = grabbedObjects[grabbedObjects.Count - 1];
+                grabbedObjects.RemoveAt(grabbedObjects.Count - 1);
+                SoltarObjeto(last);
+            }
+        }
         if (Input.GetKeyDown(KeyCode.Space))
         {
             if (currentGrabbableObject != null && !grabbedObjects.Contains(currentGrabbableObject))
@@ -142,21 +238,18 @@ public class PlayerController : MonoBehaviour
         Collider colObj = obj.GetComponent<Collider>();
         if (colObj != null) colObj.enabled = false;
 
-        // Efecto de humo
         if (smokeEffectPrefab != null)
         {
             GameObject effect = Instantiate(smokeEffectPrefab, obj.transform.position, Quaternion.identity);
             Destroy(effect, 2f);
         }
 
-        // Juiciness extra
         JuicyObject juicy = obj.GetComponent<JuicyObject>();
         if (juicy != null)
             juicy.PlayPickupFeedback(pickupSound);
 
         Debug.Log("Agarrado: " + obj.name);
     }
-
 
     private void SoltarObjeto(GrabbableObject obj)
     {
@@ -173,7 +266,6 @@ public class PlayerController : MonoBehaviour
             StartCoroutine(ReenableCollider(col));
         }
 
-        // Reproducir sonido de soltado
         if (dropSound != null && audioSource != null)
             audioSource.PlayOneShot(dropSound);
 
