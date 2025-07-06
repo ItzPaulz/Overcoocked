@@ -23,7 +23,7 @@ public class GrabbableObject : MonoBehaviour
             canGrab = true;
             Debug.Log("Jugador entró en rango de: " + name);
 
-            PlayerController player = other.GetComponent<PlayerController>();
+            PlayerController player = other.GetComponentInParent<PlayerController>();
             if (player != null && !player.HasObject(this))
             {
                 player.SetGrabbableObject(this);
@@ -41,7 +41,7 @@ public class GrabbableObject : MonoBehaviour
             canGrab = false;
             Debug.Log("Jugador salió de rango de: " + name);
 
-            PlayerController player = other.GetComponent<PlayerController>();
+            PlayerController player = other.GetComponentInParent<PlayerController>();
             if (player != null)
             {
                 player.ClearGrabbableObject();
@@ -51,4 +51,5 @@ public class GrabbableObject : MonoBehaviour
                 juicy.HideHighlight();
         }
     }
+
 }
