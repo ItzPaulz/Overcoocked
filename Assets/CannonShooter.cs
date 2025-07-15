@@ -4,73 +4,91 @@ using System.Collections;
 public class CannonShooter : MonoBehaviour
 {
     [Header("Setup")]
-    public Transform firePoint;         // Where the bullet leaves the cannon
+    public Transform firePoint;
     public float fireForce = 500f;
-    public string enemyTag = "Enemy";   // Tag assigned to Micro_Sub prefabs
+    public string enemyTag = "Enemy";
 
-    [Tooltip("Extra offset to spawn the bullet slightly ahead of the barrel to avoid sticking inside the collider")]
-    public float muzzleOffset = 0.2f;
+    [Tooltip("Distancia por delante del cañón donde aparece la bala")]
+    public float muzzleOffset = .2f;
 
-    private bool hasFired;              // Prevent multiple shots per load
+    [Header("Animación de carga")]
+    public float loadDuration = .25f;           // tiempo que tarda en entrar
+    public AnimationCurve loadCurve =           // trayectoria (0→1)
+        AnimationCurve.EaseInOut(0,0,1,1);
 
-    private void OnTriggerEnter(Collider other)
+    bool hasFired;
+
+    /* ─────────────────────────────────────────────────────────────── */
+
+    void OnTriggerEnter(Collider other)
     {
-        if (hasFired) return;                           // Already fired
-        if (!other.CompareTag("Plato")) return;         // Only accept bullet prefab
+        if (hasFired)                    return;          // ya hay disparo
+        if (!other.CompareTag("Plato"))  return;          // solo acepta balas
 
-        if (other.TryGetComponent(out Rigidbody rb) && other.transform.parent == null && !rb.isKinematic)
+        // bala suelta + rigibody válido
+        if (other.TryGetComponent(out Rigidbody rb) &&
+            other.transform.parent == null && !rb.isKinematic)
         {
-            Debug.Log("Cannon loaded, firing 🚀");
-
-            // Reset physics
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-
-            // Position slightly outside the barrel to avoid collision issues
-            Vector3 spawnPos = firePoint.position + firePoint.forward * muzzleOffset;
-            rb.transform.position = spawnPos;
-            rb.transform.rotation = firePoint.rotation;
-
-            rb.isKinematic = false;
-            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-
-            // Ensure tag stays as "Plato"
-            rb.gameObject.tag = "Plato";
-
-            // Direction toward closest enemy (or forward if none)
-            Vector3 dir = GetDirectionTowardClosestEnemy(spawnPos);
-
-            rb.AddForce(dir * fireForce, ForceMode.Impulse);
-
-            hasFired = true;   // Prevent double firing for same load
-            StartCoroutine(ResetAfterDelay(0.5f)); // Allow next shot after delay
+            StartCoroutine(LoadAndFire(rb));              // ← NUEVO
         }
     }
 
-    Vector3 GetDirectionTowardClosestEnemy(Vector3 origin)
+    /* ─────────────  CARGAR BALÍSTICO + DISPARO  ───────────── */
+
+    IEnumerator LoadAndFire(Rigidbody rb)
+    {
+        hasFired          = true;
+        rb.isKinematic    = true;              // congelamos mientras entra
+        rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+        rb.tag            = "Plato";
+
+        Vector3 startPos  = rb.position;
+        Quaternion startRot = rb.rotation;
+        Vector3 endPos    = firePoint.position + firePoint.forward * muzzleOffset;
+        Quaternion endRot = firePoint.rotation;
+
+        // Pequeña animación de entrada
+        for (float t = 0; t < 1f; t += Time.deltaTime / loadDuration)
+        {
+            float k       = loadCurve.Evaluate(t);
+            rb.position   = Vector3.Lerp(startPos, endPos, k);
+            rb.rotation   = Quaternion.Slerp(startRot, endRot, k);
+            yield return null;
+        }
+
+        // ¡DISPARO!
+        rb.position    = endPos;
+        rb.rotation    = endRot;
+        rb.isKinematic = false;
+
+        Transform enemy = FindClosestEnemy(endPos);
+        Vector3 dir     = enemy ? (enemy.position - endPos).normalized
+                                : firePoint.forward;
+
+        Vector3 impulse = dir * fireForce;
+        rb.AddForce(impulse, ForceMode.Impulse);
+
+        // si la bala ya trae HomingBullet lo usamos; si no, lo añadimos
+        GrabbableHomingBullet bullet = rb.GetComponent<GrabbableHomingBullet>();
+        bullet.Init(enemy, impulse / rb.mass); // velocidad = impulso / masa
+
+        yield return new WaitForSeconds(.5f);  // retardo para la siguiente bala
+        hasFired = false;
+    }
+
+    /* ─────────────  UTILIDAD ───────────── */
+
+    Transform FindClosestEnemy(Vector3 from)
     {
         GameObject[] enemies = GameObject.FindGameObjectsWithTag(enemyTag);
         Transform closest = null;
-        float minDistSqr = Mathf.Infinity;
+        float bestDist2   = Mathf.Infinity;
 
         foreach (var e in enemies)
         {
-            float distSqr = (e.transform.position - origin).sqrMagnitude;
-            if (distSqr < minDistSqr)
-            {
-                minDistSqr = distSqr;
-                closest = e.transform;
-            }
+            float d2 = (e.transform.position - from).sqrMagnitude;
+            if (d2 < bestDist2) { bestDist2 = d2; closest = e.transform; }
         }
-
-        return closest ? (closest.position - origin).normalized : firePoint.forward;
-    }
-
-    IEnumerator ResetAfterDelay(float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        hasFired = false;
+        return closest;
     }
 }
-
-

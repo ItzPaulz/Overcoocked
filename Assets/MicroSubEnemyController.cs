@@ -1,131 +1,149 @@
 ﻿using UnityEngine;
 
-/* ===============================================================
- *  MICRO‑SUB ENEMY CONTROLLER
- * =============================================================== */
-public class MicroSubEnemyController : MonoBehaviour
+public class EnemyChaseShoot : MonoBehaviour
 {
-    [Header("References")]
-    public Transform player;                  // Player transform inside StylShip_Unity
-    public GameObject laserPrefab;            // Prefab with LaserController
-    public GameObject explosionPrefab;        // FX on laser impact or death
+    /* ---------- Referencias ---------- */
+    [Header("Referencias")]
+    public Transform player;            // Objetivo a perseguir
+    public GameObject laserPrefab;      // Prefab del láser (con Rigidbody)
 
-    [Header("Movement / Orbit")]
-    public float moveSpeed = 3f;              // Tangential speed
-    public float orbitRadiusMin = 4f;
-    public float orbitRadiusMax = 6f;
-    public float radialAdjustSpeed = 2f;
+    /* ---------- Movimiento ---------- */
+    [Header("Movimiento")]
+    public float moveSpeed   = 8f;      // m/s - Velocidad de persecución
+    public float fixedHeight = 12.8f;   // Altura fija sobre el suelo (Y mundial)
+    public float stopDistance = 15f;    // Distancia mínima al jugador (para no chocar)
+    
+    [Header("Órbita")]
+    public Vector3 targetPosition = new Vector3(-3.52f, 12.8f, -14.55f); // Posición objetivo
+    public float orbitRadius = 30f;     // Radio de órbita
+    public float orbitSpeed = 45f;      // Velocidad de órbita en grados/segundo
+    public float arrivalThreshold = 2f; // Distancia para considerar que llegó
+    
+    private bool hasArrivedAtTarget = false;
+    private float orbitAngle = 0f;
 
-    [Header("Combat")]
-    public float fireRate = 2f;               // Seconds between shots
-    public float laserSpeed = 12f;
+    /* ---------- Combate ---------- */
+    [Header("Combate")]
+    public float fireRate       = 2f;   // Segundos entre disparos (más frecuente)
+    public float laserSpeed     = 20f;  // m/s (más rápido)
+    public float detectionRange = 30f;  // Solo dispara si el jugador está cerca
 
-    [Header("Duplication Settings")]
-    public int maxDuplicates = 10;
-    public string bulletTag = "Plato"; // Player bullet tag
-    public float spawnOffsetRadius = 2f;
+    float _fireTimer;
 
-    /* ---------------- Internals ---------------- */
-    private float _orbitRadius;
-    private int _orbitDirection;            // 1 clockwise, -1 counter‑clockwise
-    private float _fireTimer;
-    private float _fixedY;                    // Altitude to maintain
-
-    private static int _instanceCount;
-    private static bool _initialCloneSpawned;
-
-    /* ---------------- LIFECYCLE ---------------- */
+    /* ---------- Inicialización ---------- */
     void Start()
     {
-        if (!player) player = GameObject.FindGameObjectWithTag("Player")?.transform;
-
-        _orbitRadius = Random.Range(orbitRadiusMin, orbitRadiusMax);
-        _orbitDirection = Random.value > 0.5f ? 1 : -1;
-        _fireTimer = Random.Range(0f, fireRate);
-        _fixedY = transform.position.y;
-
-        _instanceCount++;
-
-        if (!_initialCloneSpawned && _instanceCount < maxDuplicates)
-        {
-            SpawnCloneNear(player.position);
-            _initialCloneSpawned = true;
-        }
+        // Dar a cada nave un ángulo inicial aleatorio para evitar que se agrupen
+        orbitAngle = Random.Range(0f, 360f);
     }
 
-    void OnDestroy() => _instanceCount--;
-
+    /* ---------- Bucle ---------- */
     void Update()
     {
         if (!player) return;
-        MoveOrbit();
-        HandleFiring();
-    }
 
-    /* ---------------- ORBIT ---------------- */
-    void MoveOrbit()
-    {
-        Vector3 toPlayer = transform.position - player.position;
-        Vector3 horizontal = new Vector3(toPlayer.x, 0f, toPlayer.z);
-        float distance = horizontal.magnitude;
-        if (distance < 0.01f) return;
-
-        Vector3 radialDir = horizontal.normalized;
-        Vector3 tangentialDir = Vector3.Cross(Vector3.up * _orbitDirection, radialDir).normalized;
-
-        Vector3 move = tangentialDir * moveSpeed;
-        float radiusError = distance - _orbitRadius;
-        move += radialDir * (-radiusError * radialAdjustSpeed);
-
-        transform.position += move * Time.deltaTime;
-
-        // Keep altitude
-        transform.position = new Vector3(transform.position.x, _fixedY, transform.position.z);
-
-        transform.rotation = Quaternion.LookRotation(-radialDir);
-    }
-
-    /* ---------------- SHOOT ---------------- */
-    void HandleFiring()
-    {
-        _fireTimer -= Time.deltaTime;
-        if (_fireTimer <= 0f)
+        if (!hasArrivedAtTarget)
         {
-            Shoot();
-            _fireTimer = fireRate;
+            MoveToTarget();
+        }
+        else
+        {
+            OrbitAroundTarget();
+        }
+        
+        HandleShooting();
+    }
+
+    /* ---------- Movimiento a Posición Objetivo ---------- */
+    void MoveToTarget()
+    {
+        // Calcular dirección hacia la posición objetivo
+        Vector3 dir = targetPosition - transform.position;
+        dir.y = 0f; // Mantener movimiento horizontal
+        
+        float distanceToTarget = dir.magnitude;
+        
+        // Verificar si llegó al objetivo
+        if (distanceToTarget <= arrivalThreshold)
+        {
+            hasArrivedAtTarget = true;
+            // Inicializar ángulo de órbita basado en la posición actual
+            Vector3 toCenter = transform.position - targetPosition;
+            toCenter.y = 0f;
+            orbitAngle = Mathf.Atan2(toCenter.z, toCenter.x) * Mathf.Rad2Deg;
+            return;
+        }
+        
+        // Moverse hacia el objetivo
+        if (dir.sqrMagnitude > 0.01f)
+        {
+            transform.position += dir.normalized * moveSpeed * Time.deltaTime;
+            transform.rotation = Quaternion.LookRotation(dir);
+        }
+        
+        // Mantener altura constante
+        Vector3 pos = transform.position;
+        pos.y = fixedHeight;
+        transform.position = pos;
+    }
+    
+    /* ---------- Órbita Alrededor del Objetivo ---------- */
+    void OrbitAroundTarget()
+    {
+        // Actualizar ángulo de órbita
+        orbitAngle += orbitSpeed * Time.deltaTime;
+        if (orbitAngle >= 360f) orbitAngle -= 360f;
+        
+        // Calcular nueva posición en órbita
+        float radians = orbitAngle * Mathf.Deg2Rad;
+        Vector3 orbitPos = new Vector3(
+            targetPosition.x + Mathf.Cos(radians) * orbitRadius,
+            fixedHeight,
+            targetPosition.z + Mathf.Sin(radians) * orbitRadius
+        );
+        
+        transform.position = orbitPos;
+        
+        // Mirar hacia el jugador mientras orbita
+        if (player != null)
+        {
+            Vector3 lookDir = player.position - transform.position;
+            if (lookDir.sqrMagnitude > 0.01f)
+            {
+                transform.rotation = Quaternion.LookRotation(lookDir);
+            }
         }
     }
 
-    void Shoot()
+    /* ---------- Disparo ---------- */
+    void HandleShooting()
+    {
+        _fireTimer -= Time.deltaTime;
+        if (_fireTimer > 0f) return;
+
+        if (Vector3.Distance(transform.position, player.position) <= detectionRange)
+            ShootLaser();
+
+        _fireTimer = fireRate;
+    }
+
+    void ShootLaser()
     {
         if (!laserPrefab) return;
-        GameObject laserGO = Instantiate(laserPrefab, transform.position, Quaternion.identity);
-        if (laserGO.TryGetComponent(out LaserController laser))
-            laser.Init(player, laserSpeed, explosionPrefab);
+
+        Quaternion aim = Quaternion.LookRotation(player.position - transform.position);
+        GameObject laser = Instantiate(laserPrefab, transform.position, aim);
+
+        if (laser.TryGetComponent(out Rigidbody rb))
+            rb.linearVelocity = laser.transform.forward * laserSpeed;
+
+        Destroy(laser, 5f);
     }
 
-    /* ---------------- DUPLICATION & DEATH ---------------- */
+    /* ---------- Colisión ---------- */
     void OnTriggerEnter(Collider other)
     {
-        if (!other.CompareTag(bulletTag)) return;
-
-        Destroy(other.gameObject);
-
-        if (_instanceCount < maxDuplicates)
-            SpawnCloneNear(player.position);
-
-        if (explosionPrefab)
-            Destroy(Instantiate(explosionPrefab, transform.position, Quaternion.identity), 3f);
-
-        Destroy(gameObject);
-    }
-
-    void SpawnCloneNear(Vector3 origin)
-    {
-        Vector3 offset = Random.insideUnitSphere * spawnOffsetRadius;
-        offset.y = 0f;
-        Vector3 spawnPos = origin + offset;
-        spawnPos.y = _fixedY;
-        Instantiate(gameObject, spawnPos, Quaternion.identity);
+        if (other.CompareTag("Plato"))
+            Destroy(gameObject);
     }
 }
