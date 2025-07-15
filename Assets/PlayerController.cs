@@ -1,9 +1,17 @@
-using UnityEngine;
+﻿using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.SceneManagement;   // Para recargar la escena al morir
 
 public class PlayerController : MonoBehaviour
 {
+    /* ───────────── NUEVO: SALUD ───────────── */
+    [Header("Health")]
+    public int maxHealth = 3;
+    private int currentHealth;
+    public GameObject deathEffectPrefab;   // Efecto de explosión/humo al morir
+
+    /* ───────────── MOVIMIENTO / PICKUP ────── */
     public float moveSpeed = 5f;
     public float rotationSpeed = 200f;
     private CharacterController controller;
@@ -16,33 +24,33 @@ public class PlayerController : MonoBehaviour
 
     private GrabbableObject currentGrabbableObject;
     public Transform grabPoint;
-    private List<GrabbableObject> grabbedObjects = new List<GrabbableObject>();
+    private readonly List<GrabbableObject> grabbedObjects = new();
 
     public GameObject smokeEffectPrefab;
     public AudioClip pickupSound;
     public AudioClip dropSound;
     private AudioSource audioSource;
 
+    /* ───────────── LIFE‑CYCLE ─────────────── */
     void Start()
     {
+        /* Salud */
+        currentHealth = maxHealth;
+
+        /* Componentes */
         controller = GetComponent<CharacterController>();
         if (!controller) Debug.LogError("Falta CharacterController");
 
         rb = GetComponent<Rigidbody>();
         if (!rb) Debug.LogError("Falta Rigidbody");
 
-        audioSource = GetComponent<AudioSource>();
-        if (!audioSource)
-        {
-            audioSource = GetComponentInChildren<AudioSource>();
-            if (!audioSource)
-                Debug.LogError("Falta AudioSource");
-        }
+        audioSource = GetComponent<AudioSource>() ?? GetComponentInChildren<AudioSource>();
+        if (!audioSource) Debug.LogError("Falta AudioSource");
     }
 
     void Update()
     {
-        // Movimiento
+        /* Movimiento */
         moveInput = Input.GetAxis("Vertical");
         rotationInput = Input.GetAxis("Horizontal");
 
@@ -59,86 +67,106 @@ public class PlayerController : MonoBehaviour
         float rotation = rotationInput * rotationSpeed * Time.deltaTime;
         transform.Rotate(0f, rotation, 0f);
 
-        // Agarrar o soltar con tecla Espacio
+        /* Grabar / soltar */
         if (Input.GetKeyDown(KeyCode.Space))
-        {
-            if (currentGrabbableObject != null && !grabbedObjects.Contains(currentGrabbableObject))
-            {
-                string newTag = currentGrabbableObject.tag;
-
-                if (grabbedObjects.Count == 0)
-                {
-                    AgarrarObjeto(currentGrabbableObject);
-                    currentGrabbableObject = null;
-                }
-                else if (grabbedObjects.Count == 1)
-                {
-                    string firstTag = grabbedObjects[0].tag;
-
-                    if (firstTag == "Plato")
-                    {
-                        AgarrarObjeto(currentGrabbableObject);
-                        currentGrabbableObject = null;
-                    }
-                    else
-                    {
-                        SoltarObjeto(grabbedObjects[0]);
-                        grabbedObjects.Clear();
-
-                        AgarrarObjeto(currentGrabbableObject);
-                        currentGrabbableObject = null;
-                    }
-                }
-                else if (grabbedObjects.Count == 2)
-                {
-                    string firstTag = grabbedObjects[0].tag;
-
-                    if (firstTag == "Plato")
-                    {
-                        GrabbableObject topObject = grabbedObjects[1];
-                        grabbedObjects.RemoveAt(1);
-                        SoltarObjeto(topObject);
-
-                        AgarrarObjeto(currentGrabbableObject);
-                        currentGrabbableObject = null;
-                    }
-                    else
-                    {
-                        foreach (var obj in grabbedObjects)
-                            SoltarObjeto(obj);
-                        grabbedObjects.Clear();
-
-                        AgarrarObjeto(currentGrabbableObject);
-                        currentGrabbableObject = null;
-                    }
-                }
-            }
-            else if (grabbedObjects.Count > 0)
-            {
-                GrabbableObject last = grabbedObjects[grabbedObjects.Count - 1];
-                grabbedObjects.RemoveAt(grabbedObjects.Count - 1);
-                SoltarObjeto(last);
-            }
-        }
+            HandleGrabLogic();
     }
 
     private void FixedUpdate()
     {
         Vector3 forwardVelocity = transform.forward * moveInput * moveSpeed;
-        rb.linearVelocity = new Vector3(forwardVelocity.x, rb.linearVelocity.y, forwardVelocity.z);
+        rb.linearVelocity = new Vector3(forwardVelocity.x, rb.linearVelocity.y, forwardVelocity.z);  // linearVelocity → velocity
 
         float rotation = rotationInput * rotationSpeed * Time.fixedDeltaTime;
         Quaternion turn = Quaternion.Euler(0f, rotation, 0f);
         rb.MoveRotation(rb.rotation * turn);
     }
 
+    /* ───────────── SALUD ───────────── */
+    public void TakeDamage(int amount = 1)
+    {
+        currentHealth -= amount;
+        if (currentHealth <= 0) Die();
+        else Debug.Log($"Player recibió daño. Vida restante: {currentHealth}/{maxHealth}");
+    }
+
+    private void Die()
+    {
+        Debug.Log("Player muerto 🚀");
+
+        if (deathEffectPrefab)
+        {
+            Instantiate(deathEffectPrefab, transform.position, Quaternion.identity);
+        }
+
+        // Deshabilitar controles para evitar más acciones mientras muere
+        enabled = false;
+
+        // Ejemplo simple: recargar la escena tras 2 s
+        StartCoroutine(ReloadSceneAfterDelay(2f));
+    }
+
+    private IEnumerator ReloadSceneAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+    }
+
+    /* ───────────── GRAB / DROP (sin cambios en la lógica principal) ───────────── */
+    private void HandleGrabLogic()
+    {
+        if (currentGrabbableObject != null && !grabbedObjects.Contains(currentGrabbableObject))
+        {
+            if (grabbedObjects.Count == 0)
+            {
+                AgarrarObjeto(currentGrabbableObject);
+            }
+            else if (grabbedObjects.Count == 1)
+            {
+                if (grabbedObjects[0].CompareTag("Plato"))
+                    AgarrarObjeto(currentGrabbableObject);
+                else
+                {
+                    SoltarObjeto(grabbedObjects[0]);
+                    grabbedObjects.Clear();
+                    AgarrarObjeto(currentGrabbableObject);
+                }
+            }
+            else if (grabbedObjects.Count == 2)
+            {
+                if (grabbedObjects[0].CompareTag("Plato"))
+                {
+                    GrabbableObject top = grabbedObjects[1];
+                    grabbedObjects.RemoveAt(1);
+                    SoltarObjeto(top);
+                    AgarrarObjeto(currentGrabbableObject);
+                }
+                else
+                {
+                    foreach (var obj in grabbedObjects)
+                        SoltarObjeto(obj);
+                    grabbedObjects.Clear();
+                    AgarrarObjeto(currentGrabbableObject);
+                }
+            }
+            currentGrabbableObject = null;
+        }
+        else if (grabbedObjects.Count > 0)
+        {
+            GrabbableObject last = grabbedObjects[^1];
+            grabbedObjects.RemoveAt(grabbedObjects.Count - 1);
+            SoltarObjeto(last);
+        }
+    }
+
+    /* ───────────── MÉTODOS PICKUP / DROP (sin cambios relevantes) ───────────── */
     private void AgarrarObjeto(GrabbableObject obj)
     {
         float totalHeight = 0f;
         foreach (var o in grabbedObjects)
         {
-            Collider col = o.GetComponent<Collider>();
-            if (col != null) totalHeight += col.bounds.size.y + 0.01f;
+            if (o.TryGetComponent(out Collider col))
+                totalHeight += col.bounds.size.y + 0.01f;
         }
 
         grabbedObjects.Add(obj);
@@ -147,20 +175,15 @@ public class PlayerController : MonoBehaviour
         obj.transform.localPosition = new Vector3(0f, totalHeight, 0f);
         obj.transform.localRotation = Quaternion.identity;
 
-        Rigidbody objRb = obj.GetComponent<Rigidbody>();
-        if (objRb != null) objRb.isKinematic = true;
+        if (obj.TryGetComponent(out Rigidbody objRb))
+            objRb.isKinematic = true;
+        if (obj.TryGetComponent(out Collider colObj))
+            colObj.enabled = false;
 
-        Collider colObj = obj.GetComponent<Collider>();
-        if (colObj != null) colObj.enabled = false;
+        if (smokeEffectPrefab)
+            Destroy(Instantiate(smokeEffectPrefab, obj.transform.position, Quaternion.identity), 2f);
 
-        if (smokeEffectPrefab != null)
-        {
-            GameObject effect = Instantiate(smokeEffectPrefab, obj.transform.position, Quaternion.identity);
-            Destroy(effect, 2f);
-        }
-
-        JuicyObject juicy = obj.GetComponent<JuicyObject>();
-        if (juicy != null)
+        if (obj.TryGetComponent(out JuicyObject juicy))
             juicy.PlayPickupFeedback(pickupSound);
 
         Debug.Log("Agarrado: " + obj.name);
@@ -171,38 +194,23 @@ public class PlayerController : MonoBehaviour
         obj.transform.SetParent(null);
         obj.transform.position = grabPoint.position + transform.forward * 0.3f + Vector3.down * 0.1f;
 
-        Rigidbody objRb = obj.GetComponent<Rigidbody>();
-        if (objRb != null) objRb.isKinematic = false;
+        if (obj.TryGetComponent(out Rigidbody objRb))
+            objRb.isKinematic = false;
 
-        Collider col = obj.GetComponent<Collider>();
-        if (col != null)
+        if (obj.TryGetComponent(out Collider col))
         {
             col.enabled = false;
             StartCoroutine(ReenableCollider(col));
         }
 
-        if (dropSound != null && audioSource != null)
-            audioSource.PlayOneShot(dropSound);
-
+        audioSource?.PlayOneShot(dropSound);
         Debug.Log("Soltado: " + obj.name);
     }
 
-    public void SetGrabbableObject(GrabbableObject grabbableObject)
-    {
-        currentGrabbableObject = grabbableObject;
-        Debug.Log("Objeto disponible: " + grabbableObject.name);
-    }
-
-    public void ClearGrabbableObject()
-    {
-        currentGrabbableObject = null;
-        Debug.Log("Saliste del trigger.");
-    }
-
-    public bool HasObject(GrabbableObject obj)
-    {
-        return grabbedObjects.Contains(obj);
-    }
+    /* ───────────── HELPERS ───────────── */
+    public void SetGrabbableObject(GrabbableObject g) => currentGrabbableObject = g;
+    public void ClearGrabbableObject() => currentGrabbableObject = null;
+    public bool HasObject(GrabbableObject obj) => grabbedObjects.Contains(obj);
 
     private IEnumerator ReenableCollider(Collider col)
     {
