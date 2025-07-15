@@ -1,11 +1,14 @@
 ﻿using UnityEngine;
 
+/* ===============================================================
+ *  MICRO‑SUB ENEMY CONTROLLER
+ * =============================================================== */
 public class MicroSubEnemyController : MonoBehaviour
 {
     [Header("References")]
     public Transform player;                  // Player transform inside StylShip_Unity
     public GameObject laserPrefab;            // Prefab with LaserController
-    public GameObject explosionPrefab;        // FX on laser impact
+    public GameObject explosionPrefab;        // FX on laser impact or death
 
     [Header("Movement / Orbit")]
     public float moveSpeed = 3f;              // Tangential speed
@@ -18,9 +21,9 @@ public class MicroSubEnemyController : MonoBehaviour
     public float laserSpeed = 12f;
 
     [Header("Duplication Settings")]
-    public int maxDuplicates = 10;       // Global limit (originals + clones)
-    public string bulletTag = "Plato"; // Tag of the projectile that triggers duplication
-    public float spawnOffsetRadius = 2f;     // Distance from player when cloning
+    public int maxDuplicates = 10;
+    public string bulletTag = "Plato"; // Player bullet tag
+    public float spawnOffsetRadius = 2f;
 
     /* ---------------- Internals ---------------- */
     private float _orbitRadius;
@@ -28,8 +31,8 @@ public class MicroSubEnemyController : MonoBehaviour
     private float _fireTimer;
     private float _fixedY;                    // Altitude to maintain
 
-    private static int _instanceCount;       // Global count
-    private static bool _initialCloneSpawned; // Ensures only one auto‑clone
+    private static int _instanceCount;
+    private static bool _initialCloneSpawned;
 
     /* ---------------- LIFECYCLE ---------------- */
     void Start()
@@ -59,7 +62,7 @@ public class MicroSubEnemyController : MonoBehaviour
         HandleFiring();
     }
 
-    /* ---------------- ORBIT MOVEMENT ---------------- */
+    /* ---------------- ORBIT ---------------- */
     void MoveOrbit()
     {
         Vector3 toPlayer = transform.position - player.position;
@@ -76,15 +79,13 @@ public class MicroSubEnemyController : MonoBehaviour
 
         transform.position += move * Time.deltaTime;
 
-        // Maintain altitude
-        Vector3 pos = transform.position;
-        pos.y = _fixedY;
-        transform.position = pos;
+        // Keep altitude
+        transform.position = new Vector3(transform.position.x, _fixedY, transform.position.z);
 
         transform.rotation = Quaternion.LookRotation(-radialDir);
     }
 
-    /* ---------------- SHOOTING ---------------- */
+    /* ---------------- SHOOT ---------------- */
     void HandleFiring()
     {
         _fireTimer -= Time.deltaTime;
@@ -103,17 +104,23 @@ public class MicroSubEnemyController : MonoBehaviour
             laser.Init(player, laserSpeed, explosionPrefab);
     }
 
-    /* ---------------- DUPLICATION ON BULLET HIT ---------------- */
+    /* ---------------- DUPLICATION & DEATH ---------------- */
     void OnTriggerEnter(Collider other)
     {
         if (!other.CompareTag(bulletTag)) return;
+
         Destroy(other.gameObject);
 
-        if (_instanceCount >= maxDuplicates) return;
-        SpawnCloneNear(player.position);
+        if (_instanceCount < maxDuplicates)
+            SpawnCloneNear(player.position);
+
+        if (explosionPrefab)
+            Destroy(Instantiate(explosionPrefab, transform.position, Quaternion.identity), 3f);
+
+        Destroy(gameObject);
     }
 
-    private void SpawnCloneNear(Vector3 origin)
+    void SpawnCloneNear(Vector3 origin)
     {
         Vector3 offset = Random.insideUnitSphere * spawnOffsetRadius;
         offset.y = 0f;
