@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 90bcbb8ac9379cb489cc8d538a20aa6e
+timeCreated: 1481468577
+licenseType: Store
+NativeFormatImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 77672
+  packageName: Micro Sub
+  packageVersion: 1.0
+  assetPath: Assets/Micro_Sub/Scenes/DemoScene/LightingData.asset
+  uploadId: 150857

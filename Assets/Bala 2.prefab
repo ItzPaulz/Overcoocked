@@ -122,7 +122,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 17564f4c575534affb333a5fa064e8af, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  canGrab: 0
+  canGrab: 1
   originalPosition: {x: 0, y: 0, z: 0}
   originalRotation: {x: 0, y: 0, z: 0, w: 0}
 --- !u!54 &7597254272144784098
